@@ -1,0 +1,1 @@
+"""SeoulTech mail integration."""

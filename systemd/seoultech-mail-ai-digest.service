@@ -1,0 +1,7 @@
+[Unit]
+Description=Write yesterday's SeoulTech AI mail summary
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/seoultech-mcp
+ExecStart=%h/seoultech-mcp/.venv/bin/seoultech-mail ai-digest --date yesterday --output-dir %h/seoultech-mail-summaries

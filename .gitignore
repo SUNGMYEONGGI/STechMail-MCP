@@ -1,0 +1,12 @@
+.venv*/
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.firecrawl/
+.playwright-cli/
+digests/
+.env
+*.secret
+credentials.json
+DISTRIBUTION_PLAN.md
