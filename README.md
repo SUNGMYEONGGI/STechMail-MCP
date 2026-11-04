@@ -9,6 +9,8 @@
 | `read_inbox_message` | 메일 본문 조회 |
 | `get_daily_mail_digest` | 날짜별 메일 미리보기·건수 조회 |
 
+로컬 개인용(stdio)과 여러 사용자용 OAuth 원격 서버(`--http`) 두 가지로 실행 가능함.
+
 날짜는 한국 시간 기준임. 조회 결과를 보고 ChatGPT나 Codex가 요약해 줌. 첨부파일 내용은 조회하지 않음.
 
 ## 설치
@@ -91,7 +93,34 @@ ChatGPT 개발자 모드 켠 뒤 [플러그인](https://chatgpt.com/plugins)에�
 
 등록 후 “채팅에서 사용해 보기”에서 메일 조회 요청하면 됨. 플러그인 등록은 한 번만 하면 됨.
 
-현재 플러그인은 이 컴퓨터에 저장된 **하나의 메일 계정**으로 동작함. 사용자별 OAuth가 없으므로 개인용으로만 사용하고, 다른 사람은 각자 계정과 터널을 설정해야 함.
+터널 방식은 이 컴퓨터에 저장된 **하나의 메일 계정**으로 동작함. 여러 사람이 각자 계정으로 쓰려면 아래 [OAuth 원격 서버](#oauth-원격-서버-v020)를 사용.
+
+## OAuth 원격 서버 (v0.2.0)
+
+서버 하나에 여러 사용자가 각자 학교 계정으로 연결하는 방식임. Claude 커스텀 커넥터나 ChatGPT 플러그인에서 서버 주소를 등록하면, 연결할 때 로그인 페이지가 열리고 학교 웹메일 아이디·비밀번호를 입력하면 됨. 서버는 실제 웹메일 로그인으로 계정을 확인한 뒤 OAuth 토큰을 발급함.
+
+```bash
+.venv/bin/seoultech-mail-mcp --generate-key   # 출력값을 SEOULTECH_AUTH_KEY로 보관
+export SEOULTECH_PUBLIC_URL="https://mail-mcp.example.com"
+export SEOULTECH_AUTH_KEY="위에서 만든 키"
+export SEOULTECH_AUTH_DB="$HOME/.local/share/seoultech-mcp/auth.db"   # 기본값
+.venv/bin/seoultech-mail-mcp --http --host 127.0.0.1 --port 8000
+```
+
+| 환경 변수 | 설명 |
+| --- | --- |
+| `SEOULTECH_PUBLIC_URL` | 외부에서 접속하는 HTTPS 주소. OAuth issuer와 리소스 주소(`/mcp`)로 사용됨 |
+| `SEOULTECH_AUTH_KEY` | 비밀번호 암호화 키(Fernet). 바꾸면 모든 사용자가 다시 로그인해야 함 |
+| `SEOULTECH_AUTH_DB` | 클라이언트·토큰·암호화된 비밀번호 저장 SQLite 파일 (권한 600) |
+| `SEOULTECH_HOST`, `SEOULTECH_PORT` | `--host`, `--port` 기본값 |
+
+- 서버 앞에 HTTPS 리버스 프록시(Caddy, nginx, Cloudflare Tunnel 등)를 두고 `127.0.0.1:8000`으로 전달. `SEOULTECH_PUBLIC_URL`은 `https`만 허용함(로컬 테스트용 `localhost` 제외).
+- 서버에 Google Chrome 필요함 (웹메일 로그인).
+- 연결 주소: `https://mail-mcp.example.com/mcp`. 인증은 `OAuth`, 동적 클라이언트 등록 지원하므로 클라이언트 ID 입력 필요 없음.
+- 엔드포인트: `/.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/login`, `/token`, `/revoke`, `/mcp`.
+- 토큰 수명: access 1시간, refresh 30일(사용할 때마다 교체). 로그인 요청은 10분 안에 끝내야 하고 실패는 5회까지 허용함.
+
+**보안 주의:** 메일 조회 때마다 웹메일에 로그인해야 하므로 사용자 비밀번호를 서버에 암호화해 저장함. 토큰은 해시로만 저장함. 서버 운영자는 `SEOULTECH_AUTH_KEY`와 DB 파일에 접근할 수 있으면 비밀번호를 복호화할 수 있으므로, 신뢰할 수 있는 사람만 운영하고 키와 DB를 분리 보관할 것. 학교 계정 정책도 확인할 것.
 
 ## 터널 끄기·재시작·점검
 
