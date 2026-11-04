@@ -62,6 +62,14 @@ class MailTests(unittest.TestCase):
                 self.assertIn(("select", "INBOX", True), client.connection.calls)
                 self.assertTrue(all("BODY.PEEK" in call[-1] for call in client.connection.calls if call[0] == "fetch"))
 
+    def test_explicit_credentials_override_local_account(self):
+        with patch.dict(os.environ, {"SEOULTECH_EMAIL": "local", "SEOULTECH_PASSWORD": "local-pw", "SEOULTECH_BACKEND": "imap"}), patch(
+            "seoultech_mcp.mail.imaplib.IMAP4_SSL", FakeIMAP
+        ):
+            with MailClient(("other@seoultech.ac.kr", "other-pw")) as client:
+                self.assertEqual(client.username, "other@seoultech.ac.kr")
+                self.assertIn(("login", "other@seoultech.ac.kr", "other-pw"), client.connection.calls)
+
     def test_seen_flag_and_html_text(self):
         item = _parse_metadata(PREFIX.replace(b"FLAGS ()", b"FLAGS (\\Seen)"), HEADER)
         self.assertFalse(item.unread)

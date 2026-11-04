@@ -70,8 +70,11 @@ def _body_text(value: Any) -> str:
 class WebmailClient:
     backend = "webmail"
 
+    def __init__(self, credentials: tuple[str, str] | None = None) -> None:
+        self._credentials = credentials
+
     def __enter__(self) -> WebmailClient:
-        self.username, password = settings()
+        self.username, password = self._credentials or settings()
         self._playwright = None
         self._browser = None
         self._context = None
