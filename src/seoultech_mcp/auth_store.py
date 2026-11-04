@@ -68,6 +68,11 @@ class AuthStore:
         with closing(self._connect()) as db, db:
             db.execute("DELETE FROM items WHERE kind = ? AND id = ?", (kind, self._id(kind, key)))
 
+    def delete_grant(self, grant: str) -> None:
+        """Delete every token issued under one grant (access + refresh pair)."""
+        with closing(self._connect()) as db, db:
+            db.execute("DELETE FROM items WHERE json_extract(value, '$.grant') = ?", (grant,))
+
     def purge_expired(self) -> None:
         with closing(self._connect()) as db, db:
             db.execute("DELETE FROM items WHERE expires_at IS NOT NULL AND expires_at < ?", (time.time(),))
