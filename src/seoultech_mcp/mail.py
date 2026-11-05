@@ -169,16 +169,22 @@ def settings() -> tuple[str, str]:
         raise MailError("자격 증명 파일 형식이 올바르지 않습니다.")
     if not username or not password:
         raise MailError("계정 정보가 없습니다. `seoultech-mail configure`를 실행하세요.")
-    if "@" not in username:
-        username += "@seoultech.ac.kr"
-    return username, password
+    return normalize_email(username), password
+
+
+def normalize_email(username: str) -> str:
+    username = username.strip()
+    return username if "@" in username else username + "@seoultech.ac.kr"
 
 
 class ImapMailClient:
     backend = "imap"
 
+    def __init__(self, credentials: tuple[str, str] | None = None) -> None:
+        self._credentials = credentials
+
     def __enter__(self) -> ImapMailClient:
-        username, password = settings()
+        username, password = self._credentials or settings()
         try:
             self.connection = imaplib.IMAP4_SSL(HOST, PORT, ssl_context=ssl.create_default_context(), timeout=20)
             self.connection.login(username, password)
@@ -274,13 +280,17 @@ class ImapMailClient:
 class MailClient:
     """Use the supported webmail session by default; allow IMAP when a school account permits it."""
 
+    def __init__(self, credentials: tuple[str, str] | None = None) -> None:
+        """credentials=(email, password); None reads the local configured account."""
+        self._credentials = credentials
+
     def __enter__(self):
         if os.environ.get("SEOULTECH_BACKEND", "webmail").lower() == "imap":
-            self._client = ImapMailClient()
+            self._client = ImapMailClient(self._credentials)
         else:
             from .webmail import WebmailClient
 
-            self._client = WebmailClient()
+            self._client = WebmailClient(self._credentials)
         return self._client.__enter__()
 
     def __exit__(self, *args: object) -> None:
