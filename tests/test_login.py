@@ -1,6 +1,8 @@
 import asyncio
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -12,7 +14,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from seoultech_mcp.auth_store import AuthStore
-from seoultech_mcp.login import MAX_ATTEMPTS, make_login_handler
+from seoultech_mcp.login import MAX_ATTEMPTS, MAX_FAILURES_PER_ACCOUNT, MAX_FAILURES_PER_IP, RATE_WINDOW, make_login_handler
 from seoultech_mcp.oauth import SeoulTechOAuthProvider
 
 
@@ -24,19 +26,23 @@ class LoginPageTests(unittest.TestCase):
         verify = lambda email, password: (email, password) == ("me@seoultech.ac.kr", "right")
         app = Starlette(routes=[Route("/login", make_login_handler(self.provider, verify), methods=["GET", "POST"])])
         self.http = TestClient(app, follow_redirects=False)
+        self.request_id = self.new_request()
+
+    def new_request(self):
         client = OAuthClientInformationFull(client_id="c1", redirect_uris=["https://claude.ai/cb"])
         params = AuthorizationParams(
             state="s1", scopes=["mail.read"], code_challenge="x" * 43,
             redirect_uri="https://claude.ai/cb", redirect_uri_provided_explicitly=True,
         )
         url = asyncio.run(self.provider.authorize(client, params))
-        self.request_id = parse_qs(urlparse(url).query)["request"][0]
+        return parse_qs(urlparse(url).query)["request"][0]
 
     def tearDown(self):
         self.folder.cleanup()
 
-    def post(self, username, password):
-        return self.http.post("/login", data={"request": self.request_id, "username": username, "password": password})
+    def post(self, username, password, request_id=None):
+        data = {"request": request_id or self.request_id, "username": username, "password": password}
+        return self.http.post("/login", data=data)
 
     def test_success_redirects_with_code_and_stores_password(self):
         page = self.http.get(f"/login?request={self.request_id}")
@@ -59,6 +65,27 @@ class LoginPageTests(unittest.TestCase):
         self.assertEqual(self.post("me", "wrong").status_code, 400)
         self.assertEqual(self.post("me", "right").status_code, 400)
         self.assertIsNone(self.store.get_password("me@seoultech.ac.kr"))
+
+    def test_account_limit_survives_new_requests(self):
+        for _ in range(MAX_FAILURES_PER_ACCOUNT):
+            self.assertEqual(self.post("me", "wrong", self.new_request()).status_code, 401)
+        blocked = self.post("me", "right", self.new_request())  # Even the right password waits.
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn("Retry-After", blocked.headers)
+        later = time.time() + RATE_WINDOW + 1
+        with patch("seoultech_mcp.login.time.time", return_value=later), patch("seoultech_mcp.auth_store.time.time", return_value=later):
+            self.assertEqual(self.post("me", "right", self.new_request()).status_code, 302)
+
+    def test_ip_limit_across_accounts(self):
+        for n in range(MAX_FAILURES_PER_IP):
+            self.assertEqual(self.post(f"user{n}", "wrong", self.new_request()).status_code, 401)
+        self.assertEqual(self.post("me", "right", self.new_request()).status_code, 429)
+
+    def test_success_resets_account_counter(self):
+        for _ in range(MAX_FAILURES_PER_ACCOUNT - 1):
+            self.post("me", "wrong", self.new_request())
+        self.assertEqual(self.post("me", "right", self.new_request()).status_code, 302)
+        self.assertEqual(self.post("me", "wrong", self.new_request()).status_code, 401)  # Not 429.
 
     def test_unknown_request(self):
         self.assertEqual(self.http.get("/login?request=nope").status_code, 400)

@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from html import escape
 
+import math
+import time
+
 import anyio.to_thread
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
@@ -13,6 +16,24 @@ from .mail import MailClient, MailError, normalize_email
 from .oauth import SeoulTechOAuthProvider
 
 MAX_ATTEMPTS = 5
+# Failed sign-ins across all login requests, so new /authorize requests cannot reset the count.
+RATE_WINDOW = 15 * 60
+MAX_FAILURES_PER_IP = 10
+MAX_FAILURES_PER_ACCOUNT = 5
+
+
+def _retry_after(store, key: str, limit: int) -> int:
+    """Seconds until `key` may try again; 0 when under the limit."""
+    entry = store.get("ratelimit", key)
+    if entry is None or entry["count"] < limit:
+        return 0
+    return max(1, math.ceil(entry["reset_at"] - time.time()))
+
+
+def _record_failure(store, key: str) -> None:
+    entry = store.get("ratelimit", key) or {"count": 0, "reset_at": time.time() + RATE_WINDOW}
+    entry["count"] += 1
+    store.put("ratelimit", key, entry, ttl=max(1, entry["reset_at"] - time.time()))
 
 
 def verify_webmail_login(email: str, password: str) -> bool:
@@ -23,7 +44,7 @@ def verify_webmail_login(email: str, password: str) -> bool:
         return False
 
 
-def _page(request_id: str, error: str = "", status: int = 200) -> HTMLResponse:
+def _page(request_id: str, error: str = "", status: int = 200, headers: dict | None = None) -> HTMLResponse:
     message = f'<p class="error" role="alert">{escape(error)}</p>' if error else ""
     return HTMLResponse(
         f"""<!doctype html>
@@ -50,7 +71,7 @@ button{{width:100%;margin-top:20px;padding:12px;font-size:16px;cursor:pointer}}
 <p><small>비밀번호는 메일 조회를 위해 서버에 암호화되어 저장됩니다.</small></p>
 </body></html>""",
         status_code=status,
-        headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"},
+        headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", **(headers or {})},
     )
 
 
@@ -80,8 +101,19 @@ def make_login_handler(
             return _page(request_id, "아이디와 비밀번호를 입력하세요.", 400)
 
         email = normalize_email(username)
+        store = provider.store
+        ip_key, account_key = f"ip:{request.client.host if request.client else 'unknown'}", f"account:{email.lower()}"
+        wait = max(_retry_after(store, ip_key, MAX_FAILURES_PER_IP), _retry_after(store, account_key, MAX_FAILURES_PER_ACCOUNT))
+        if wait:
+            minutes = math.ceil(wait / 60)
+            return _page(
+                request_id, f"로그인 실패가 너무 많습니다. {minutes}분 후 다시 시도하세요.", 429, {"Retry-After": str(wait)}
+            )
+
         # Playwright sync API cannot run inside the event loop.
         if not await anyio.to_thread.run_sync(verify, email, password):
+            _record_failure(store, ip_key)
+            _record_failure(store, account_key)
             attempts = pending.get("attempts", 0) + 1
             if attempts >= MAX_ATTEMPTS:
                 provider.store.delete("pending", request_id)
@@ -89,7 +121,8 @@ def make_login_handler(
             provider.store.put("pending", request_id, {**pending, "attempts": attempts}, ttl=600)
             return _page(request_id, f"로그인에 실패했습니다. ({attempts}/{MAX_ATTEMPTS})", 401)
 
-        provider.store.set_password(email, password)
+        store.delete("ratelimit", account_key)
+        store.set_password(email, password)
         return RedirectResponse(provider.complete_login(request_id, email), status_code=302)
 
     return login
