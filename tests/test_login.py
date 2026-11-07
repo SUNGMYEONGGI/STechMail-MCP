@@ -14,7 +14,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from seoultech_mcp.auth_store import AuthStore
-from seoultech_mcp.login import MAX_ATTEMPTS, MAX_FAILURES_PER_ACCOUNT, MAX_FAILURES_PER_IP, RATE_WINDOW, make_login_handler
+from seoultech_mcp.login import MAX_ATTEMPTS, MAX_FAILURES_PER_ACCOUNT, MAX_FAILURES_PER_IP, RATE_WINDOW, make_delete_handler, make_login_handler
 from seoultech_mcp.oauth import SeoulTechOAuthProvider
 
 
@@ -24,7 +24,10 @@ class LoginPageTests(unittest.TestCase):
         self.store = AuthStore(Path(self.folder.name) / "auth.db", Fernet.generate_key())
         self.provider = SeoulTechOAuthProvider(self.store, "https://mail-mcp.example.com")
         verify = lambda email, password: (email, password) == ("me@seoultech.ac.kr", "right")
-        app = Starlette(routes=[Route("/login", make_login_handler(self.provider, verify), methods=["GET", "POST"])])
+        app = Starlette(routes=[
+            Route("/login", make_login_handler(self.provider, verify), methods=["GET", "POST"]),
+            Route("/account/delete", make_delete_handler(self.store, verify), methods=["GET", "POST"]),
+        ])
         self.http = TestClient(app, follow_redirects=False)
         self.request_id = self.new_request()
 
@@ -86,6 +89,21 @@ class LoginPageTests(unittest.TestCase):
             self.post("me", "wrong", self.new_request())
         self.assertEqual(self.post("me", "right", self.new_request()).status_code, 302)
         self.assertEqual(self.post("me", "wrong", self.new_request()).status_code, 401)  # Not 429.
+
+    def test_delete_account(self):
+        self.assertEqual(self.post("me", "right").status_code, 302)
+        self.assertEqual(self.http.get("/account/delete").status_code, 200)
+        wrong = self.http.post("/account/delete", data={"username": "me", "password": "nope"})
+        self.assertEqual(wrong.status_code, 401)
+        self.assertEqual(self.store.get_password("me@seoultech.ac.kr"), "right")
+        done = self.http.post("/account/delete", data={"username": "me", "password": "right"})
+        self.assertEqual(done.status_code, 200)
+        self.assertIsNone(self.store.get_password("me@seoultech.ac.kr"))
+
+    def test_delete_account_is_rate_limited(self):
+        for _ in range(MAX_FAILURES_PER_ACCOUNT):
+            self.http.post("/account/delete", data={"username": "me", "password": "nope"})
+        self.assertEqual(self.http.post("/account/delete", data={"username": "me", "password": "right"}).status_code, 429)
 
     def test_unknown_request(self):
         self.assertEqual(self.http.get("/login?request=nope").status_code, 400)

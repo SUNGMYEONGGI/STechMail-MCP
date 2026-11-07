@@ -132,10 +132,14 @@ export SEOULTECH_AUTH_DB="$HOME/.local/share/seoultech-mcp/auth.db"   # 기본�
 - 서버 앞에 HTTPS 리버스 프록시(Caddy, nginx, Cloudflare Tunnel 등)를 두고 `127.0.0.1:8000`으로 전달. `SEOULTECH_PUBLIC_URL`은 `https`만 허용함(로컬 테스트용 `localhost` 제외).
 - 서버에 Google Chrome 필요함 (웹메일 로그인).
 - 연결 주소: `https://mail-mcp.example.com/mcp`. 인증은 `OAuth`, 동적 클라이언트 등록 지원하므로 클라이언트 ID 입력 필요 없음.
-- 엔드포인트: `/.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/login`, `/token`, `/revoke`, `/mcp`.
+- 엔드포인트: `/.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/login`, `/token`, `/revoke`, `/account/delete`, `/mcp`.
 - 토큰 수명: access 1시간, refresh 30일(사용할 때마다 교체). 로그인 요청은 10분 안에 끝내야 하고 요청 하나당 실패는 5회까지 허용함.
 - 로그인 실패 제한: 15분 동안 같은 IP에서 10회, 같은 계정으로 5회 실패하면 해당 시간이 지날 때까지 로그인 차단(HTTP 429). 새 로그인 요청을 만들어도 초기화되지 않음. 계정 단위 횟수는 로그인 성공 시 초기화됨.
 - 리버스 프록시가 다른 호스트에 있으면 `FORWARDED_ALLOW_IPS`에 프록시 IP를 지정해야 실제 접속 IP로 제한이 걸림(기본값은 같은 서버의 `127.0.0.1`). 신뢰할 수 없는 IP를 넣으면 `X-Forwarded-For` 위조로 IP 제한을 우회할 수 있음.
+
+**저장 정보 삭제:**
+- 비밀번호는 그 계정에 유효한 연결(refresh 토큰 또는 교환 전 인가 코드)이 남아 있는 동안만 보관함. 클라이언트가 토큰을 폐기(`/revoke`)하거나 refresh 토큰이 만료되면 비밀번호도 삭제됨. 정리는 서버 시작 시, 새 로그인 요청 시, 토큰 폐기 시 실행됨.
+- 사용자가 직접 `https://서버주소/account/delete`에서 학교 계정으로 본인 확인 후 비밀번호와 모든 연결을 즉시 삭제할 수 있음. 로그인 페이지에도 링크가 있음. 실패 제한은 로그인과 같이 적용됨.
 
 **보안 주의:** 메일 조회 때마다 웹메일에 로그인해야 하므로 사용자 비밀번호를 서버에 암호화해 저장함. 토큰은 해시로만 저장함. 서버 운영자는 `SEOULTECH_AUTH_KEY`와 DB 파일에 접근할 수 있으면 비밀번호를 복호화할 수 있으므로, 신뢰할 수 있는 사람만 운영하고 키와 DB를 분리 보관할 것. 학교 계정 정책도 확인할 것.
 
