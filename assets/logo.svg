@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">SeoulTech Mail MCP</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1F3A6B"/>
+      <stop offset="1" stop-color="#0F1E3D"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- envelope -->
+  <rect x="96" y="148" width="280" height="200" rx="28" fill="#FFFFFF"/>
+  <path d="M112 170 L236 262 L360 170" fill="none" stroke="#1F3A6B" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- lock badge: read-only, OAuth-protected -->
+  <circle cx="368" cy="348" r="84" fill="#2FD39A" stroke="#0F1E3D" stroke-width="16"/>
+  <path d="M342 342 v-18 a26 26 0 0 1 52 0 v18" fill="none" stroke="#0F1E3D" stroke-width="14" stroke-linecap="round"/>
+  <rect x="326" y="338" width="84" height="62" rx="12" fill="#0F1E3D"/>
+  <circle cx="368" cy="364" r="9" fill="#2FD39A"/>
+  <rect x="363" y="366" width="10" height="20" rx="4" fill="#2FD39A"/>
+</svg>

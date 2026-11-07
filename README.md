@@ -1,6 +1,21 @@
-# SeoulTech Mail MCP
+<p align="center">
+  <img src="assets/logo.svg" alt="SeoulTech Mail MCP 로고" width="128" height="128">
+</p>
 
-서울과학기술대학교 웹메일 받은편지함 조회용 MCP임. 메일 발송·삭제·읽음 처리 기능은 없음.
+<h1 align="center">SeoulTech Mail MCP</h1>
+
+<p align="center">
+  서울과학기술대학교 웹메일 받은편지함을 AI 앱에서 읽기 전용으로 조회하는 MCP 서버
+</p>
+
+<p align="center">
+  <a href="https://github.com/SUNGMYEONGGI/STechMail-MCP/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/SUNGMYEONGGI/STechMail-MCP"></a>
+  <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
+  <img alt="read-only" src="https://img.shields.io/badge/mail-read--only-2FD39A">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/SUNGMYEONGGI/STechMail-MCP"></a>
+</p>
+
+메일 발송·삭제·읽음 처리 기능은 없음.
 
 | 도구 | 하는 일 |
 | --- | --- |
@@ -87,7 +102,7 @@ ChatGPT 개발자 모드 켠 뒤 [플러그인](https://chatgpt.com/plugins)에�
 | --- | --- |
 | 이름 | `SeoulTech Mail` |
 | 설명 | `서울과학기술대학교 받은편지함 조회 및 메일 요약` |
-| 아이콘 | [`assets/mailplug-icon.png`](assets/mailplug-icon.png) |
+| 아이콘 | [`assets/logo.png`](assets/logo.png) |
 | 연결 | `터널` → 본인 터널 ID |
 | 인증 | `인증 없음` |
 
