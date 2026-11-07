@@ -44,6 +44,7 @@ class OAuthProviderTests(unittest.TestCase):
     def test_full_flow(self):
         self.assertEqual(run(self.provider.get_client("c1")).client_id, "c1")
         request_id, code = self.login()
+        self.provider.store.set_password("me@seoultech.ac.kr", "pw")
         with self.assertRaises(AuthorizeError):
             self.provider.complete_login(request_id, "me@seoultech.ac.kr")  # Pending request is single-use.
 
@@ -64,6 +65,7 @@ class OAuthProviderTests(unittest.TestCase):
         new_access = run(self.provider.load_access_token(rotated.access_token))
         self.assertEqual(new_access.subject, "me@seoultech.ac.kr")
         run(self.provider.revoke_token(new_access))
+        self.assertIsNone(self.provider.store.get_password("me@seoultech.ac.kr"))  # No grant left.
         self.assertIsNone(run(self.provider.load_access_token(rotated.access_token)))
         self.assertIsNone(run(self.provider.load_refresh_token(self.client, rotated.refresh_token)))
 

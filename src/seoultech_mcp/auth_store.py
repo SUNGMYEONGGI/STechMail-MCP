@@ -74,8 +74,24 @@ class AuthStore:
             db.execute("DELETE FROM items WHERE json_extract(value, '$.grant') = ?", (grant,))
 
     def purge_expired(self) -> None:
+        """Drop expired rows, then passwords no live grant still needs."""
         with closing(self._connect()) as db, db:
             db.execute("DELETE FROM items WHERE expires_at IS NOT NULL AND expires_at < ?", (time.time(),))
+            # A pending code keeps the password alive between sign-in and token exchange.
+            db.execute(
+                "DELETE FROM items WHERE kind = 'user' AND id NOT IN ("
+                "SELECT json_extract(value, '$.subject') FROM items WHERE kind IN ('code', 'refresh') "
+                "AND json_extract(value, '$.subject') IS NOT NULL)"
+            )
+
+    def delete_user(self, email: str) -> None:
+        """Remove the password and every code or token issued for this account."""
+        with closing(self._connect()) as db, db:
+            db.execute(
+                "DELETE FROM items WHERE kind IN ('code', 'access', 'refresh') AND json_extract(value, '$.subject') = ?",
+                (email,),
+            )
+            db.execute("DELETE FROM items WHERE kind = 'user' AND id = ?", (email,))
 
     def set_password(self, email: str, password: str) -> None:
         self.put("user", email, {"password": self._fernet.encrypt(password.encode()).decode()})

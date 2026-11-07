@@ -24,7 +24,7 @@ def create_server(store: AuthStore | None = None, public_url: str | None = None)
     if store is None:
         mcp = MCPServer("SeoulTech Mail")
     else:
-        from .login import make_login_handler
+        from .login import make_delete_handler, make_login_handler
         from .oauth import SCOPE, SeoulTechOAuthProvider
 
         public_url = public_url.rstrip("/")
@@ -42,6 +42,7 @@ def create_server(store: AuthStore | None = None, public_url: str | None = None)
             ),
         )
         mcp.custom_route("/login", methods=["GET", "POST"], include_in_schema=False)(make_login_handler(provider))
+        mcp.custom_route("/account/delete", methods=["GET", "POST"], include_in_schema=False)(make_delete_handler(store))
 
     def credentials() -> tuple[str, str] | None:
         if store is None:

@@ -40,6 +40,7 @@ class SeoulTechOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode,
         self.store.put("client", client_info.client_id, client_info.model_dump(mode="json", exclude_none=True))
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        self.store.purge_expired()  # ponytail: cleanup rides on sign-in traffic; add a timer if traffic is too sparse.
         request_id = secrets.token_urlsafe(32)
         self.store.put(
             "pending", request_id, {"client_id": client.client_id, "params": params.model_dump(mode="json")}, ttl=PENDING_TTL
@@ -106,6 +107,7 @@ class SeoulTechOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode,
         data = self.store.get(kind, token.token)
         if data is not None:
             self.store.delete_grant(data["grant"])
+            self.store.purge_expired()  # Last grant revoked: the stored password goes too.
 
     def _issue(self, client_id: str, scopes: list[str], subject: str | None, resource: str | None) -> OAuthToken:
         grant = secrets.token_urlsafe(16)
