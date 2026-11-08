@@ -128,6 +128,8 @@ export SEOULTECH_AUTH_DB="$HOME/.local/share/seoultech-mcp/auth.db"   # 기본�
 | `SEOULTECH_AUTH_KEY` | 비밀번호 암호화 키(Fernet). 바꾸면 모든 사용자가 다시 로그인해야 함 |
 | `SEOULTECH_AUTH_DB` | 클라이언트·토큰·암호화된 비밀번호 저장 SQLite 파일 (권한 600) |
 | `SEOULTECH_HOST`, `SEOULTECH_PORT` | `--host`, `--port` 기본값 |
+| `SEOULTECH_SESSION_TTL` | 웹메일 로그인 세션 재사용 시간(초, 기본 1200). 세션은 메모리에만 보관하고 서버 재시작 시 사라짐 |
+| `SEOULTECH_MAX_BROWSERS` | 동시에 실행할 수 있는 로그인용 Chrome 수 (기본 2) |
 
 - 서버 앞에 HTTPS 리버스 프록시(Caddy, nginx, Cloudflare Tunnel 등)를 두고 `127.0.0.1:8000`으로 전달. `SEOULTECH_PUBLIC_URL`은 `https`만 허용함(로컬 테스트용 `localhost` 제외).
 - 서버에 Google Chrome 필요함 (웹메일 로그인).

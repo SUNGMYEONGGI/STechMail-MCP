@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import threading
+import time
+import urllib.error
+import urllib.request
 from datetime import date, datetime
 from typing import Any
 
@@ -16,6 +22,24 @@ from .mail import MAX_SEARCH_RESULTS, MailError, SEOUL, _HTMLText, settings
 
 BASE = "https://mail.seoultech.ac.kr"
 PAGE_SIZE = 100
+SESSION_TTL = int(os.environ.get("SEOULTECH_SESSION_TTL", "1200"))
+
+# Signed-in webmail cookies, memory only, keyed by (email, password hash) so a wrong
+# password never reuses someone's session. Lost on restart by design.
+_sessions: dict[tuple[str, str], tuple[str, float]] = {}
+_sessions_lock = threading.Lock()
+# Each browser login is a full Chrome process; cap how many run at once.
+_browser_slots = threading.BoundedSemaphore(int(os.environ.get("SEOULTECH_MAX_BROWSERS", "2")))
+
+
+def _session_key(email: str, password: str) -> tuple[str, str]:
+    return email.lower(), hashlib.sha256(password.encode()).hexdigest()
+
+
+def forget_sessions(email: str) -> None:
+    with _sessions_lock:
+        for key in [key for key in _sessions if key[0] == email.lower()]:
+            del _sessions[key]
 
 
 def _address(recipient: Any) -> str:
@@ -75,49 +99,72 @@ class WebmailClient:
 
     def __enter__(self) -> WebmailClient:
         self.username, password = self._credentials or settings()
-        self._playwright = None
-        self._browser = None
-        self._context = None
+        key = _session_key(self.username, password)
+        with _sessions_lock:
+            cookie, expires = _sessions.get(key, ("", 0.0))
+        if cookie and expires > time.time():
+            self._cookie = cookie
+            try:
+                self._mailbox_id = self._inbox_id()
+                return self
+            except MailError:
+                pass  # Session ended on the server side: sign in again below.
+        self._cookie = self._browser_login(password)
         try:
-            self._playwright = sync_playwright().start()
-            self._browser = self._playwright.chromium.launch(
-                channel=os.environ.get("SEOULTECH_BROWSER_CHANNEL", "chrome"), headless=True
-            )
-            page = self._browser.new_page()
-            self._context = page.context
-            page.goto(f"{BASE}/member/login", wait_until="domcontentloaded", timeout=30_000)
-            page.get_by_role("textbox", name="아이디 입력").fill(self.username.split("@")[0])
-            page.get_by_role("textbox", name="비밀번호 입력").fill(password)
-            page.get_by_role("button", name="로그인").click()
-            page.get_by_role("link", name=re.compile("받은 메일함")).first.wait_for(timeout=30_000)
-            mailboxes = self._get_json("/api/v2/mail/mailboxes?mailStats=false&limit=0")
-            inbox = next((item for item in mailboxes.get("value", []) if item.get("type") == 2), None)
-            if inbox is None or not isinstance(inbox.get("mailboxId"), int):
-                raise MailError("웹메일에서 받은편지함 ID를 찾지 못했습니다.")
-            self._mailbox_id = inbox["mailboxId"]
-            return self
-        except (PlaywrightError, PlaywrightTimeoutError) as exc:
-            self.__exit__()
-            raise MailError("웹메일 브라우저 연결 또는 로그인에 실패했습니다. Chrome 설치와 계정 정보를 확인하세요.") from exc
-        except Exception:
-            self.__exit__()
+            self._mailbox_id = self._inbox_id()
+        except MailError:
+            with _sessions_lock:
+                _sessions.pop(key, None)
             raise
+        with _sessions_lock:
+            _sessions[key] = (self._cookie, time.time() + SESSION_TTL)
+        return self
 
     def __exit__(self, *_: object) -> None:
-        if self._browser is not None:
-            self._browser.close()
-        if self._playwright is not None:
-            self._playwright.stop()
+        pass
+
+    def _browser_login(self, password: str) -> str:
+        """Sign in with headless Chrome and return the session Cookie header; the browser closes right away."""
+        with _browser_slots:
+            try:
+                with sync_playwright() as playwright:
+                    browser = playwright.chromium.launch(
+                        channel=os.environ.get("SEOULTECH_BROWSER_CHANNEL", "chrome"), headless=True
+                    )
+                    try:
+                        page = browser.new_page()
+                        page.goto(f"{BASE}/member/login", wait_until="domcontentloaded", timeout=30_000)
+                        page.get_by_role("textbox", name="아이디 입력").fill(self.username.split("@")[0])
+                        page.get_by_role("textbox", name="비밀번호 입력").fill(password)
+                        page.get_by_role("button", name="로그인").click()
+                        page.get_by_role("link", name=re.compile("받은 메일함")).first.wait_for(timeout=30_000)
+                        cookies = page.context.cookies(BASE)
+                    finally:
+                        browser.close()
+            except (PlaywrightError, PlaywrightTimeoutError) as exc:
+                raise MailError("웹메일 브라우저 연결 또는 로그인에 실패했습니다. Chrome 설치와 계정 정보를 확인하세요.") from exc
+        return "; ".join(f"{cookie['name']}={cookie['value']}" for cookie in cookies)
+
+    def _inbox_id(self) -> int:
+        mailboxes = self._get_json("/api/v2/mail/mailboxes?mailStats=false&limit=0")
+        inbox = next((item for item in mailboxes.get("value", []) if item.get("type") == 2), None)
+        if inbox is None or not isinstance(inbox.get("mailboxId"), int):
+            raise MailError("웹메일에서 받은편지함 ID를 찾지 못했습니다.")
+        return inbox["mailboxId"]
 
     def _get_json(self, path: str) -> dict[str, Any]:
+        request = urllib.request.Request(
+            BASE + path, headers={"Cookie": self._cookie, "Accept": "application/json", "User-Agent": "seoultech-mail-mcp"}
+        )
         try:
-            response = self._context.request.get(BASE + path, timeout=20_000)
-        except PlaywrightError as exc:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                body = response.read()
+        except urllib.error.HTTPError as exc:
+            raise MailError(f"웹메일 조회가 거부되었습니다 (HTTP {exc.code}). 다시 로그인하거나 학교 메일 서비스 상태를 확인하세요.") from exc
+        except (urllib.error.URLError, OSError) as exc:
             raise MailError("웹메일 조회 요청에 실패했습니다.") from exc
-        if not response.ok:
-            raise MailError(f"웹메일 조회가 거부되었습니다 (HTTP {response.status}). 다시 로그인하거나 학교 메일 서비스 상태를 확인하세요.")
         try:
-            data = response.json()
+            data = json.loads(body)
         except ValueError as exc:
             raise MailError("웹메일 응답이 JSON 형식이 아닙니다.") from exc
         if not isinstance(data, dict):
