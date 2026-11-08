@@ -15,6 +15,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from .mail import MailClient, MailError, normalize_email
 from .oauth import SeoulTechOAuthProvider
+from .webmail import forget_sessions
 
 MAX_ATTEMPTS = 5
 # Failed sign-ins across all login requests, so new /authorize requests cannot reset the count.
@@ -187,6 +188,7 @@ def make_delete_handler(
 
         store.delete_user(email)
         store.delete("ratelimit", account_key)
+        forget_sessions(email)
         return HTMLResponse(
             "<!doctype html><html lang='ko'><meta charset='utf-8'><title>삭제 완료</title>"
             "<p>저장된 계정 정보와 연결이 모두 삭제되었습니다.</p></html>",
