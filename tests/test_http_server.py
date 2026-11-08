@@ -104,6 +104,10 @@ class HttpServerTests(unittest.TestCase):
 
                 self.assertEqual(rpc(http, "bogus", "tools/list", session=session).status_code, 401)
 
+                self.assertEqual(http.post("/revoke", data={"token": token, "client_id": client["client_id"], "client_secret": ""}).status_code, 200)
+                self.assertIsNone(self.store.get_password("me@seoultech.ac.kr"))
+                self.assertEqual(http.get("/account/delete").status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()
