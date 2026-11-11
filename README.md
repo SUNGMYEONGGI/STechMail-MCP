@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="SeoulTech Mail MCP 로고" width="128" height="128">
+  <img src="assets/logo.png" alt="SeoulTech Mail MCP 로고" width="128" height="128">
 </p>
 
 <h1 align="center">SeoulTech Mail MCP</h1>
