@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any
 
@@ -17,7 +18,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from .mail import MAX_SEARCH_RESULTS, MailError, SEOUL, _HTMLText, settings
+from .mail import MAX_SEARCH_RESULTS, MailError, SEOUL, _HTMLText, check_range, settings
 
 
 BASE = "https://mail.seoultech.ac.kr"
@@ -171,9 +172,10 @@ class WebmailClient:
             raise MailError("웹메일 응답 형식이 바뀌었습니다.")
         return data
 
-    def list_messages(self, day: date, limit: int = 100, unread_only: bool = False) -> dict[str, Any]:
+    def list_messages(self, day: date, limit: int = 100, unread_only: bool = False, end: date | None = None) -> dict[str, Any]:
         if not 1 <= limit <= 500:
             raise MailError("limit은 1~500 사이여야 합니다.")
+        end = check_range(day, end)
         messages: list[dict[str, Any]] = []
         offset = 0
         while offset < MAX_SEARCH_RESULTS:
@@ -186,7 +188,7 @@ class WebmailClient:
                 break
             for row in rows:
                 received_day = _received(row).date()
-                if received_day == day and (not unread_only or row.get("messageFlag") == "N"):
+                if day <= received_day <= end and (not unread_only or row.get("messageFlag") == "N"):
                     messages.append(_metadata(row))
             offset += len(rows)
             # The inbox API returns newest first; a page older than the target day completes the search.
@@ -197,6 +199,7 @@ class WebmailClient:
         messages.sort(key=lambda item: (item["received_at"], item["uid"]), reverse=True)
         return {
             "date": day.isoformat(),
+            "end_date": end.isoformat(),
             "timezone": "Asia/Seoul",
             "backend": self.backend,
             "total": len(messages),
@@ -221,11 +224,12 @@ class WebmailClient:
             "attachment_content_included": False,
         }
 
-    def daily_digest(self, day: date, limit: int = 100, preview_chars: int = 500) -> dict[str, Any]:
+    def daily_digest(self, day: date, limit: int = 100, preview_chars: int = 500, end: date | None = None) -> dict[str, Any]:
         if not 50 <= preview_chars <= 2_000:
             raise MailError("preview_chars는 50~2000 사이여야 합니다.")
-        listing = self.list_messages(day, limit=limit)
-        for message in listing["messages"]:
+        listing = self.list_messages(day, limit=limit, end=end)
+
+        def add_preview(message: dict[str, Any]) -> None:
             try:
                 detail = self.get_message(message["uid"], max_chars=max(500, preview_chars))
                 message["preview"] = detail["body"][:preview_chars]
@@ -233,4 +237,8 @@ class WebmailClient:
             except MailError as exc:
                 message["preview"] = ""
                 message["preview_error"] = str(exc)
+
+        # Bodies are independent HTTP reads with the same cookie; fetch them side by side.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(add_preview, listing["messages"]))
         return listing

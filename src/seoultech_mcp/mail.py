@@ -149,6 +149,19 @@ def parse_day(value: str | None) -> date:
         raise MailError("날짜는 YYYY-MM-DD 형식이어야 합니다.") from exc
 
 
+MAX_RANGE_DAYS = 92
+
+
+def check_range(start: date, end: date | None) -> date:
+    """Inclusive [start, end]; None means the single day `start`."""
+    end = end or start
+    if end < start:
+        raise MailError("end_date는 date보다 빠를 수 없습니다.")
+    if (end - start).days >= MAX_RANGE_DAYS:
+        raise MailError(f"한 번에 최대 {MAX_RANGE_DAYS}일까지 조회할 수 있습니다.")
+    return end
+
+
 def settings() -> tuple[str, str]:
     username = os.environ.get("SEOULTECH_EMAIL", "").strip()
     password = os.environ.get("SEOULTECH_PASSWORD", "")
@@ -211,12 +224,13 @@ class ImapMailClient:
             raise MailError("메일 서버가 요청을 거부했습니다.")
         return data or []
 
-    def list_messages(self, day: date, limit: int = 100, unread_only: bool = False) -> dict[str, Any]:
+    def list_messages(self, day: date, limit: int = 100, unread_only: bool = False, end: date | None = None) -> dict[str, Any]:
         if not 1 <= limit <= 500:
             raise MailError("limit은 1~500 사이여야 합니다.")
+        end = check_range(day, end)
         # Search one day on either side: IMAP day boundaries depend on the server's time zone.
         since = (day - timedelta(days=1)).strftime("%d-%b-%Y")
-        before = (day + timedelta(days=2)).strftime("%d-%b-%Y")
+        before = (end + timedelta(days=2)).strftime("%d-%b-%Y")
         found = self._uid("search", None, "SINCE", since, "BEFORE", before)
         uids = [int(uid) for uid in (found[0] or b"").split()]
         if len(uids) > MAX_SEARCH_RESULTS:
@@ -229,11 +243,12 @@ class ImapMailClient:
                 if not isinstance(item, tuple) or len(item) != 2:
                     continue
                 message = _parse_metadata(item[0], item[1])
-                if date.fromisoformat(message.received_at[:10]) == day and (not unread_only or message.unread):
+                if day <= date.fromisoformat(message.received_at[:10]) <= end and (not unread_only or message.unread):
                     messages.append(message)
         messages.sort(key=lambda mail: (mail.received_at, mail.uid), reverse=True)
         return {
             "date": day.isoformat(),
+            "end_date": end.isoformat(),
             "timezone": "Asia/Seoul",
             "total": len(messages),
             "unread": sum(mail.unread for mail in messages),
@@ -262,10 +277,10 @@ class ImapMailClient:
             "attachment_content_included": False,
         }
 
-    def daily_digest(self, day: date, limit: int = 100, preview_chars: int = 500) -> dict[str, Any]:
+    def daily_digest(self, day: date, limit: int = 100, preview_chars: int = 500, end: date | None = None) -> dict[str, Any]:
         if not 50 <= preview_chars <= 2_000:
             raise MailError("preview_chars는 50~2000 사이여야 합니다.")
-        listing = self.list_messages(day, limit=limit)
+        listing = self.list_messages(day, limit=limit, end=end)
         for message in listing["messages"]:
             try:
                 detail = self.get_message(message["uid"], max_chars=max(500, preview_chars))
