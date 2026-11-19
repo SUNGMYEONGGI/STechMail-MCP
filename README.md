@@ -21,6 +21,7 @@
 | --- | --- |
 | `check_mail_connection` | 메일 계정 연결 확인 |
 | `list_inbox_messages` | 날짜·기간별(최대 92일) 발신자·제목·읽음 상태 조회 |
+| `search_inbox_messages` | 받은편지함 전체에서 키워드(제목·발신자·본문) 검색, 미리보기 포함 |
 | `read_inbox_message` | 메일 본문 조회 |
 | `get_daily_mail_digest` | 날짜·기간별(최대 92일) 메일 미리보기·건수를 한 번에 조회 |
 

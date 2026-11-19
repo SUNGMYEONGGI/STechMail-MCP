@@ -90,6 +90,17 @@ def _register_tools(mcp: MCPServer, _run) -> None:
         return _run(lambda client: client.list_messages(start, limit, unread_only, end=end))
 
     @mcp.tool()
+    def search_inbox_messages(
+        query: str, limit: Annotated[int, Field(ge=1, le=200)] = 50,
+        preview_chars: Annotated[int, Field(ge=50, le=2_000)] = 300,
+    ) -> dict:
+        """Search the WHOLE inbox (all dates) by keyword in subject, sender and body, newest first, with body previews.
+        Use this first for any topic question ("IRB 메일", "논문 관련 메일") instead of scanning dates or opening
+        every mail. One keyword per call; for several topics call once per keyword. Open full bodies with
+        read_inbox_message only for the few mails whose preview is not enough."""
+        return _run(lambda client: client.search_messages(query, limit, preview_chars))
+
+    @mcp.tool()
     def read_inbox_message(uid: Annotated[int, Field(gt=0)], max_chars: Annotated[int, Field(ge=500, le=50_000)] = 12_000) -> dict:
         """Read one inbox email by the opaque uid field from list_inbox_messages; attachment contents are omitted."""
         return _run(lambda client: client.get_message(uid, max_chars))

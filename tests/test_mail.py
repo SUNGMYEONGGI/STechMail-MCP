@@ -139,6 +139,28 @@ class MailTests(unittest.TestCase):
         self.assertEqual([m["preview"] for m in digest["messages"]], ["body 3", "body 2"])
         self.assertEqual(digest["end_date"], "2026-09-30")
 
+    def test_webmail_search_pages_and_previews(self):
+        rows = [{"messageId": i, "subject": f"IRB {i}", "receivedDateTime": "2026-09-28T01:00:00Z", "messageFlag": "N"} for i in range(150, 0, -1)]
+        client = WebmailClient.__new__(WebmailClient)
+        client._mailbox_id = 1
+        paths = []
+
+        def fake_get(path):
+            paths.append(path)
+            if "search=" in path:
+                offset = int(path.split("offset=")[1].split("&")[0])
+                return {"value": rows[offset:offset + 100], "total": len(rows)}
+            identifier = int(path.rsplit("/", 1)[1])
+            return {**rows[150 - identifier], "body": f"body {identifier}"}
+
+        client._get_json = fake_get
+        result = client.search_messages(" IRB 심의 ", limit=120)
+        self.assertEqual((result["total"], len(result["messages"]), result["truncated"]), (150, 120, True))
+        self.assertIn("search=IRB%20%EC%8B%AC%EC%9D%98", paths[0])
+        self.assertEqual(result["messages"][0]["preview"], "body 150")
+        with self.assertRaises(MailError):
+            client.search_messages("  ")
+
     def test_check_range(self):
         self.assertEqual(check_range(date(2026, 9, 1), None), date(2026, 9, 1))
         with self.assertRaises(MailError):
