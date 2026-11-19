@@ -31,7 +31,7 @@
 
 ## 설치
 
-Python 3.10 이상, Google Chrome, 서울과기대 웹메일 계정 필요함. macOS에서 메일 조회 확인함. Linux는 설치와 MCP 초기화까지 확인했으며, 웹메일 로그인은 아직 확인 전임. Windows는 추후 지원 예정.
+Python 3.10 이상, 서울과기대 웹메일 계정 필요함. 브라우저 없이 HTTPS 요청만으로 로그인함. macOS에서 메일 조회 확인함. Linux·Windows는 같은 방식이라 동작할 것으로 보이나 아직 확인 전임.
 
 ```bash
 git clone https://github.com/SUNGMYEONGGI/STechMail-MCP.git seoultech-mcp
@@ -130,10 +130,8 @@ export SEOULTECH_AUTH_DB="$HOME/.local/share/seoultech-mcp/auth.db"   # 기본�
 | `SEOULTECH_AUTH_DB` | 클라이언트·토큰·암호화된 비밀번호 저장 SQLite 파일 (권한 600) |
 | `SEOULTECH_HOST`, `SEOULTECH_PORT` | `--host`, `--port` 기본값 |
 | `SEOULTECH_SESSION_TTL` | 웹메일 로그인 세션 재사용 시간(초, 기본 1200). 세션은 메모리에만 보관하고 서버 재시작 시 사라짐 |
-| `SEOULTECH_MAX_BROWSERS` | 동시에 실행할 수 있는 로그인용 Chrome 수 (기본 2) |
 
 - 서버 앞에 HTTPS 리버스 프록시(Caddy, nginx, Cloudflare Tunnel 등)를 두고 `127.0.0.1:8000`으로 전달. `SEOULTECH_PUBLIC_URL`은 `https`만 허용함(로컬 테스트용 `localhost` 제외).
-- 서버에 Google Chrome 필요함 (웹메일 로그인).
 - 연결 주소: `https://mail-mcp.example.com/mcp`. 인증은 `OAuth`, 동적 클라이언트 등록 지원하므로 클라이언트 ID 입력 필요 없음.
 - 엔드포인트: `/.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/login`, `/token`, `/revoke`, `/account/delete`, `/mcp`.
 - 토큰 수명: access 1시간, refresh 30일(사용할 때마다 교체). 로그인 요청은 10분 안에 끝내야 하고 요청 하나당 실패는 5회까지 허용함.

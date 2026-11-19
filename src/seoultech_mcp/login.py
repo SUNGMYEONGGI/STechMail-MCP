@@ -142,7 +142,7 @@ def make_login_handler(
         if wait := _blocked_for(store, ip_key, account_key):
             return _page(request_id, *_too_many(wait))
 
-        # Playwright sync API cannot run inside the event loop.
+        # Webmail login is blocking I/O; keep it off the event loop.
         if not await anyio.to_thread.run_sync(verify, email, password):
             _record_failure(store, ip_key)
             _record_failure(store, account_key)
