@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -225,9 +226,38 @@ class WebmailClient:
         }
 
     def daily_digest(self, day: date, limit: int = 100, preview_chars: int = 500, end: date | None = None) -> dict[str, Any]:
+        listing = self.list_messages(day, limit=limit, end=end)
+        self._add_previews(listing["messages"], preview_chars)
+        return listing
+
+    def search_messages(self, query: str, limit: int = 50, preview_chars: int = 300) -> dict[str, Any]:
+        """Server-side full-text search (subject, sender, body) over the whole inbox, newest first."""
+        query = query.strip()
+        if not query:
+            raise MailError("검색어를 입력하세요.")
+        if not 1 <= limit <= 200:
+            raise MailError("limit은 1~200 사이여야 합니다.")
+        messages: list[dict[str, Any]] = []
+        total = 0
+        while len(messages) < limit:
+            data = self._get_json(
+                f"/api/v2/mail/mailboxes/{self._mailbox_id}/messages?limit={PAGE_SIZE}&offset={len(messages)}"
+                f"&search={urllib.parse.quote(query)}"
+            )
+            rows = data.get("value")
+            if not isinstance(rows, list):
+                raise MailError("웹메일 검색 응답 형식이 바뀌었습니다.")
+            total = int(data.get("total") or 0)
+            messages += [_metadata(row) for row in rows]
+            if not rows or len(messages) >= total:
+                break
+        messages = messages[:limit]
+        self._add_previews(messages, preview_chars)
+        return {"query": query, "timezone": "Asia/Seoul", "total": total, "truncated": total > len(messages), "messages": messages}
+
+    def _add_previews(self, messages: list[dict[str, Any]], preview_chars: int) -> None:
         if not 50 <= preview_chars <= 2_000:
             raise MailError("preview_chars는 50~2000 사이여야 합니다.")
-        listing = self.list_messages(day, limit=limit, end=end)
 
         def add_preview(message: dict[str, Any]) -> None:
             try:
@@ -240,5 +270,4 @@ class WebmailClient:
 
         # Bodies are independent HTTP reads with the same cookie; fetch them side by side.
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(add_preview, listing["messages"]))
-        return listing
+            list(pool.map(add_preview, messages))

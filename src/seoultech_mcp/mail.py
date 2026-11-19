@@ -292,6 +292,11 @@ class ImapMailClient:
         return listing
 
 
+    def search_messages(self, query: str, limit: int = 50, preview_chars: int = 300) -> dict[str, Any]:
+        # ponytail: IMAP backend is a fallback; add SEARCH CHARSET UTF-8 TEXT if someone relies on it.
+        raise MailError("메일 검색은 웹메일 백엔드에서만 지원합니다.")
+
+
 class MailClient:
     """Use the supported webmail session by default; allow IMAP when a school account permits it."""
 
