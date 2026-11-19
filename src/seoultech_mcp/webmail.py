@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.cookiejar
 import json
 import os
 import re
@@ -15,9 +16,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any
 
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
 
 from .mail import MAX_SEARCH_RESULTS, MailError, SEOUL, _HTMLText, check_range, settings
 
@@ -30,8 +28,6 @@ SESSION_TTL = int(os.environ.get("SEOULTECH_SESSION_TTL", "1200"))
 # password never reuses someone's session. Lost on restart by design.
 _sessions: dict[tuple[str, str], tuple[str, float]] = {}
 _sessions_lock = threading.Lock()
-# Each browser login is a full Chrome process; cap how many run at once.
-_browser_slots = threading.BoundedSemaphore(int(os.environ.get("SEOULTECH_MAX_BROWSERS", "2")))
 
 
 def _session_key(email: str, password: str) -> tuple[str, str]:
@@ -111,7 +107,7 @@ class WebmailClient:
                 return self
             except MailError:
                 pass  # Session ended on the server side: sign in again below.
-        self._cookie = self._browser_login(password)
+        self._cookie = self._http_login(password)
         try:
             self._mailbox_id = self._inbox_id()
         except MailError:
@@ -125,27 +121,30 @@ class WebmailClient:
     def __exit__(self, *_: object) -> None:
         pass
 
-    def _browser_login(self, password: str) -> str:
-        """Sign in with headless Chrome and return the session Cookie header; the browser closes right away."""
-        with _browser_slots:
-            try:
-                with sync_playwright() as playwright:
-                    browser = playwright.chromium.launch(
-                        channel=os.environ.get("SEOULTECH_BROWSER_CHANNEL", "chrome"), headless=True
-                    )
-                    try:
-                        page = browser.new_page()
-                        page.goto(f"{BASE}/member/login", wait_until="domcontentloaded", timeout=30_000)
-                        page.get_by_role("textbox", name="아이디 입력").fill(self.username.split("@")[0])
-                        page.get_by_role("textbox", name="비밀번호 입력").fill(password)
-                        page.get_by_role("button", name="로그인").click()
-                        page.get_by_role("link", name=re.compile("받은 메일함")).first.wait_for(timeout=30_000)
-                        cookies = page.context.cookies(BASE)
-                    finally:
-                        browser.close()
-            except (PlaywrightError, PlaywrightTimeoutError) as exc:
-                raise MailError("웹메일 브라우저 연결 또는 로그인에 실패했습니다. Chrome 설치와 계정 정보를 확인하세요.") from exc
-        return "; ".join(f"{cookie['name']}={cookie['value']}" for cookie in cookies)
+    def _http_login(self, password: str) -> str:
+        """Submit the webmail login form over plain HTTPS and return the session Cookie header."""
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        opener.addheaders = [("User-Agent", "seoultech-mail-mcp")]
+        try:
+            page = opener.open(f"{BASE}/member/login", timeout=30).read().decode("utf-8", "replace")
+            form = dict(re.findall(r'<input type="hidden" name="(\w+)"[^>]*value="([^"]*)"', page))
+            if "myvalue" not in form:
+                raise MailError("웹메일 로그인 화면 형식이 바뀌었습니다.")
+            # The page's passport() sends the CSRF cookie as mailplug_token.
+            csrf = next((cookie.value for cookie in jar if cookie.name == "csrf_mailplug_token"), form.get("mailplug_token", ""))
+            form.update(mailplug_token=csrf, language_select="kr", cid=self.username.split("@")[0], cpw=password)
+            opener.open(f"{BASE}/member/do_login", urllib.parse.urlencode(form).encode(), timeout=30).read()
+            if not any(cookie.name == "MP_AUT" for cookie in jar):
+                raise MailError("웹메일 로그인에 실패했습니다. 아이디와 비밀번호를 확인하세요.")
+            # Login only sets the session; the API needs the access token minted by this refresh.
+            refresh = urllib.request.Request(
+                f"{BASE}/api/v2/member/auth/token/refresh", b'{"force":true}', {"Content-Type": "application/json"}
+            )
+            opener.open(refresh, timeout=30).read()
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise MailError("웹메일 로그인 요청에 실패했습니다. 네트워크와 학교 메일 서비스 상태를 확인하세요.") from exc
+        return "; ".join(f"{cookie.name}={cookie.value}" for cookie in jar)
 
     def _inbox_id(self) -> int:
         mailboxes = self._get_json("/api/v2/mail/mailboxes?mailStats=false&limit=0")
