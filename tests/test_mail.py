@@ -8,7 +8,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from seoultech_mcp.cli import ai_digest
-from seoultech_mcp.mail import MailClient, MailError, _body, _parse_metadata, settings
+from seoultech_mcp.mail import MailClient, MailError, _body, _parse_metadata, check_range, settings
 from seoultech_mcp.webmail import WebmailClient, _body_text
 
 
@@ -118,6 +118,33 @@ class MailTests(unittest.TestCase):
         self.assertEqual(listing["messages"][0]["uid"], 1105)
         self.assertTrue(listing["messages"][0]["unread"])
         self.assertEqual(_body_text("<p>확인<br>필요</p><script>ignore()</script>"), "확인\n필요")
+
+    def test_webmail_date_range_and_digest_in_one_call(self):
+        def row(identifier, received):
+            return {"messageId": identifier, "subject": f"s{identifier}", "receivedDateTime": received, "messageFlag": "Y"}
+
+        rows = [row(3, "2026-09-30T01:00:00Z"), row(2, "2026-09-28T01:00:00Z"), row(1, "2026-09-20T01:00:00Z")]
+        client = WebmailClient.__new__(WebmailClient)
+        client._mailbox_id = 1
+
+        def fake_get(path):
+            if path.startswith("/api/v2/mail/mailboxes/1/messages?"):
+                return {"value": rows, "total": 3}
+            identifier = int(path.rsplit("/", 1)[1])
+            return {**row(identifier, "2026-09-28T01:00:00Z"), "body": f"body {identifier}"}
+
+        client._get_json = fake_get
+        digest = client.daily_digest(date(2026, 9, 25), end=date(2026, 9, 30))
+        self.assertEqual([m["uid"] for m in digest["messages"]], [3, 2])
+        self.assertEqual([m["preview"] for m in digest["messages"]], ["body 3", "body 2"])
+        self.assertEqual(digest["end_date"], "2026-09-30")
+
+    def test_check_range(self):
+        self.assertEqual(check_range(date(2026, 9, 1), None), date(2026, 9, 1))
+        with self.assertRaises(MailError):
+            check_range(date(2026, 9, 2), date(2026, 9, 1))
+        with self.assertRaises(MailError):
+            check_range(date(2026, 1, 1), date(2026, 6, 1))
 
 
 if __name__ == "__main__":

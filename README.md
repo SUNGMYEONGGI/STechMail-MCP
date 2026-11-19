@@ -20,9 +20,9 @@
 | 도구 | 하는 일 |
 | --- | --- |
 | `check_mail_connection` | 메일 계정 연결 확인 |
-| `list_inbox_messages` | 날짜별 발신자·제목·읽음 상태 조회 |
+| `list_inbox_messages` | 날짜·기간별(최대 92일) 발신자·제목·읽음 상태 조회 |
 | `read_inbox_message` | 메일 본문 조회 |
-| `get_daily_mail_digest` | 날짜별 메일 미리보기·건수 조회 |
+| `get_daily_mail_digest` | 날짜·기간별(최대 92일) 메일 미리보기·건수를 한 번에 조회 |
 
 로컬 개인용(stdio)과 여러 사용자용 OAuth 원격 서버(`--http`) 두 가지로 실행 가능함.
 

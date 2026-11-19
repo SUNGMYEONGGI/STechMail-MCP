@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
@@ -16,7 +16,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
 from .auth_store import AuthStore
-from .mail import MailClient, MailError, SEOUL, parse_day
+from .mail import MailClient, MailError, SEOUL, check_range, parse_day
 
 
 def create_server(store: AuthStore | None = None, public_url: str | None = None) -> MCPServer:
@@ -65,6 +65,14 @@ def create_server(store: AuthStore | None = None, public_url: str | None = None)
     return mcp
 
 
+def _range(start: str, end: str) -> tuple[date, date]:
+    try:
+        first = parse_day(start)
+        return first, check_range(first, parse_day(end) if end else None)
+    except MailError as exc:
+        raise ToolError(str(exc)) from exc
+
+
 def _register_tools(mcp: MCPServer, _run) -> None:
     @mcp.tool()
     def check_mail_connection() -> dict:
@@ -72,13 +80,14 @@ def _register_tools(mcp: MCPServer, _run) -> None:
         return _run(lambda client: {"connected": True, "account": client.username, "mailbox": "INBOX", "backend": client.backend, "read_only": True})
 
     @mcp.tool()
-    def list_inbox_messages(date: str = "", limit: Annotated[int, Field(ge=1, le=500)] = 100, unread_only: bool = False) -> dict:
-        """List emails received on one YYYY-MM-DD date in Asia/Seoul, with sender, subject and unread status. Empty date means today."""
-        try:
-            day = parse_day(date)
-        except MailError as exc:
-            raise ToolError(str(exc)) from exc
-        return _run(lambda client: client.list_messages(day, limit, unread_only))
+    def list_inbox_messages(
+        date: str = "", end_date: str = "", limit: Annotated[int, Field(ge=1, le=500)] = 100, unread_only: bool = False
+    ) -> dict:
+        """List inbox emails (sender, subject, unread) received from date to end_date inclusive, YYYY-MM-DD in Asia/Seoul.
+        Empty date means today; empty end_date means just that one day. For a week or month, pass the whole range
+        in ONE call (up to 92 days) instead of calling once per day."""
+        start, end = _range(date, end_date)
+        return _run(lambda client: client.list_messages(start, limit, unread_only, end=end))
 
     @mcp.tool()
     def read_inbox_message(uid: Annotated[int, Field(gt=0)], max_chars: Annotated[int, Field(ge=500, le=50_000)] = 12_000) -> dict:
@@ -86,13 +95,15 @@ def _register_tools(mcp: MCPServer, _run) -> None:
         return _run(lambda client: client.get_message(uid, max_chars))
 
     @mcp.tool()
-    def get_daily_mail_digest(date: str = "", limit: Annotated[int, Field(ge=1, le=500)] = 100, preview_chars: Annotated[int, Field(ge=50, le=2_000)] = 500) -> dict:
-        """Get date-bounded email headers and body previews for an AI-generated daily summary. Date must be YYYY-MM-DD; empty means today. preview_chars must be 50-2000."""
-        try:
-            day = parse_day(date)
-        except MailError as exc:
-            raise ToolError(str(exc)) from exc
-        return _run(lambda client: client.daily_digest(day, limit, preview_chars))
+    def get_daily_mail_digest(
+        date: str = "", end_date: str = "", limit: Annotated[int, Field(ge=1, le=500)] = 100,
+        preview_chars: Annotated[int, Field(ge=50, le=2_000)] = 500,
+    ) -> dict:
+        """Email headers plus body previews for summarizing, from date to end_date inclusive (YYYY-MM-DD, Asia/Seoul).
+        Empty date means today; empty end_date means just that one day. Covers many days in ONE call (up to 92),
+        so do not call once per day and do not call read_inbox_message for each mail just to summarize."""
+        start, end = _range(date, end_date)
+        return _run(lambda client: client.daily_digest(start, limit, preview_chars, end=end))
 
     @mcp.prompt()
     def summarize_daily_mail(date: str = "") -> str:
